@@ -100,11 +100,10 @@ async fn generate_cover(albums: Arc<HashSet<String>>, manager: Arc<RepoManager>,
     Ok(audio)
 }
 
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let manager = RepoManager::new(env::var("ANNI_REPO")?);
-    let mut backend = FileBackend::new(PathBuf::from(env::var("ARDIO_MUSIC")?), false);
+    let mut backend = FileBackend::new(PathBuf::from(env::var("ANNI_RADIO_ROOT")?), false);
     let albums = Arc::new(backend.albums().await?);
 
     let mut process = Command::new("ffmpeg")
