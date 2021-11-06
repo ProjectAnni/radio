@@ -6,6 +6,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::io::Write;
 use tokio::process::{ChildStdout, Command};
 use anni_backend::{Backend, BackendReader, BackendReaderExt};
 use anni_backend::backends::FileBackend;
@@ -25,7 +26,7 @@ fn random_song(albums: &HashSet<String>, repo: &RepoManager) -> (String, usize) 
                 let track_id = track_id + 1;
                 use anni_repo::album::TrackType;
                 match track.track_type() {
-                    TrackType::Normal | TrackType::Absolute => {
+                    TrackType::Normal => {
                         return (catalog.clone(), track_id);
                     }
                     _ => continue,
@@ -67,12 +68,18 @@ async fn generate_cover(albums: Arc<HashSet<String>>, manager: Arc<RepoManager>,
     let album = manager.load_album(&catalog).unwrap();
     let track = &album.discs()[0].tracks()[track_id - 1];
     // TODO: i18n support for text
-    let text = format!(r#"
+    let text_temp_file = tempfile::NamedTempFile::new()?;
+    let mut text_file = text_temp_file.as_file();
+    write!(text_file, r#"
 序号：{}/{}
 标题：{}
 艺术家：{}
 专辑：{}
-"#, catalog, track_id, track.title(), track.artist(), album.title());
+"#, catalog, track_id, track.title(), track.artist(), album.title())?;
+    let text_path = text_temp_file.path();
+    let text_path = text_path.to_string_lossy();
+    eprintln!("path = {}", text_path);
+
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
@@ -83,11 +90,11 @@ async fn generate_cover(albums: Arc<HashSet<String>>, manager: Arc<RepoManager>,
     [0:v][ovrl]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2,
     drawtext=
       fontfile=/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc:
-      text='{}':
+      textfile={}:
       x=8: y='main_h-text_h-8':
       fontcolor=white:
       borderw=2:
-      fontsize=24", text),
+      fontsize=24", text_path),
             "-frames:v", "1",
             // "-f", "png_pipe", "-",
             "cover.png",
@@ -98,6 +105,7 @@ async fn generate_cover(albums: Arc<HashSet<String>>, manager: Arc<RepoManager>,
         .spawn().expect("Failed to generate image");
     let mut stdin = child.stdin.as_mut().expect("Failed to take stdin of ffmpeg(cover)");
     tokio::io::copy(&mut cover, &mut stdin).await.expect("Failed to copy cover from reader");
+    child.wait().await?;
     Ok(audio)
 }
 
@@ -112,6 +120,7 @@ async fn main() -> anyhow::Result<()> {
             "-hide_banner",
             "-re",
             "-async", "1",
+            "-thread_queue_size", "512",
             "-f", "image2",
             "-loop", "1",
             "-framerate", "25",
@@ -120,11 +129,8 @@ async fn main() -> anyhow::Result<()> {
             "-i", "pipe:0",
             "-c:v", "libx264",
             // "-c:v", "h264_omx",
-            "-pixel_format", "yuv420p",
-            "-crf", "16",
+            "-crf", "23",
             "-preset", "ultrafast",
-            "-maxrate", "1M",
-            "-bufsize", "1M",
             "-c:a", "aac",
             "-b:a", "320k",
             "-f", "mpegts",

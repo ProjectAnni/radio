@@ -840,6 +840,7 @@ dependencies = [
  "anni-repo",
  "anyhow",
  "rand",
+ "tempfile",
  "tokio",
 ]
 
