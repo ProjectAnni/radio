@@ -18,17 +18,18 @@ fn random_song(albums: &HashSet<String>, repo: &RepoManager) -> (String, usize) 
         let mut rng = rand::thread_rng();
         let pos = rng.gen_range(0..albums.len());
         if let Some(catalog) = albums.iter().nth(pos) {
-            let album = repo.load_album(catalog).unwrap();
-            let tracks = album.discs()[0].tracks();
-            let track_id = rng.gen_range(0..tracks.len());
-            let ref track = tracks[track_id];
-            let track_id = track_id + 1;
-            use anni_repo::album::TrackType;
-            match track.track_type() {
-                TrackType::Normal | TrackType::Absolute => {
-                    return (catalog.clone(), track_id);
+            if let Some(album) = repo.load_album(catalog) {
+                let tracks = album.discs()[0].tracks();
+                let track_id = rng.gen_range(0..tracks.len());
+                let ref track = tracks[track_id];
+                let track_id = track_id + 1;
+                use anni_repo::album::TrackType;
+                match track.track_type() {
+                    TrackType::Normal | TrackType::Absolute => {
+                        return (catalog.clone(), track_id);
+                    }
+                    _ => continue,
                 }
-                _ => continue,
             }
         }
     }
