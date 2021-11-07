@@ -163,7 +163,11 @@ async fn main() -> anyhow::Result<()> {
             // TODO: do not ?
             tokio::fs::copy(cover, "cover.png").await?;
             let mut stdout = to_s16le(audio.reader).await?;
-            tokio::io::copy(&mut stdout, &mut stdin).await?;
+            if let Err(_) = tokio::io::copy(&mut stdout, &mut stdin).await {
+                break;
+            }
         }
     }
+
+    Ok(())
 }
