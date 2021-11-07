@@ -163,27 +163,43 @@ async fn main() -> anyhow::Result<()> {
     const PLAYLIST_SIZE: usize = 2;
     let mut playlist = VecDeque::with_capacity(PLAYLIST_SIZE);
 
-    loop {
-        if playlist.len() != PLAYLIST_SIZE {
-            let track = manager.random_track(&albums);
-            eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
+    // prefill playlist
+    while playlist.len() != PLAYLIST_SIZE {
+        let track = manager.random_track(&albums);
+        eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
 
-            if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
-                if let Ok(cover) = save_cover(cover).await {
-                    playlist.push_back((track, audio, cover));
+        if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
+            if let Ok(cover) = save_cover(cover).await {
+                playlist.push_back((track, audio, cover));
+            }
+        }
+    }
+
+    loop {
+        let (track, audio, cover) = playlist.pop_front().unwrap();
+        // apply actual cover
+        tokio::fs::copy(cover, "cover.png").await?;
+        // transcode audio to s16le
+        let mut stdout = to_s16le(audio.reader).await?;
+        // copy s16le to ffmpeg stdin & push new track to playlist concurrently
+        let (copy, release_playlist) = tokio::join!(
+            tokio::io::copy(&mut stdout, &mut stdin),
+            (|| async {
+                let track = manager.random_track(&albums);
+                eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
+                if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
+                    if let Ok(cover) = save_cover(cover).await {
+                        playlist.push_back((track, audio, cover));
+                    }
                 }
-            }
-        } else {
-            // play mode
-            let (track, audio, cover) = playlist.pop_front().unwrap();
-            // TODO: do not ?
-            tokio::fs::copy(cover, "cover.png").await?;
-            let mut stdout = to_s16le(audio.reader).await?;
-            let copy = tokio::io::copy(&mut stdout, &mut stdin).await;
-            backend.invalidate(track.catalog, track.track_id as u8);
-            if matches!(copy, Err(_)) {
-                break;
-            }
+                playlist
+            })()
+        );
+        playlist = release_playlist;
+
+        backend.invalidate(track.catalog, track.track_id as u8);
+        if matches!(copy, Err(_)) {
+            break;
         }
     }
 
