@@ -12,32 +12,9 @@ use anni_backend::{Backend, BackendReader, BackendReaderExt};
 use anni_backend::backends::FileBackend;
 use anni_repo::Album;
 use anni_repo::album::Track;
-use rand::Rng;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
 use crate::repo::RepoManager;
-
-fn random_song<'repo>(albums: &HashSet<String>, repo: &'repo RepoManager) -> (String, usize, &'repo Album, &'repo Track) {
-    loop {
-        let mut rng = rand::thread_rng();
-        let pos = rng.gen_range(0..albums.len());
-        if let Some(catalog) = albums.iter().nth(pos) {
-            if let Some(album) = repo.load_album(catalog) {
-                let tracks = album.discs()[0].tracks();
-                let track_id = rng.gen_range(0..tracks.len());
-                let ref track = tracks[track_id];
-                let track_id = track_id + 1;
-                use anni_repo::album::TrackType;
-                match track.track_type() {
-                    TrackType::Normal => {
-                        return (catalog.clone(), track_id, album, track);
-                    }
-                    _ => continue,
-                }
-            }
-        }
-    }
-}
 
 async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     let mut cmd = Command::new("ffmpeg")
@@ -174,15 +151,14 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         if playlist.len() != PLAYLIST_SIZE {
-            let song = random_song(&albums, &manager);
+            let song = manager.rand_track(&albums);
             eprintln!("catalog = {}, track = {}", song.0, song.1);
+
             if let Ok((audio, cover)) = generate_cover(backend.clone(), song).await {
                 if let Ok(cover) = save_cover(cover).await {
                     playlist.push_back((audio, cover));
                 }
             }
-            // there must be some error here, but still continue
-            continue;
         } else {
             // play mode
             let (audio, cover) = playlist.pop_front().unwrap();
