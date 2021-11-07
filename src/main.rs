@@ -86,8 +86,9 @@ async fn generate_cover(backend: Arc<impl Backend>, TrackRef { catalog, track_id
 
     tokio::spawn(async move {
         // drop text file after child
-        let _ = text_temp_file;
+        let file = text_temp_file;
         let _ = child.wait().await;
+        drop(file);
     });
 
     Ok((audio, stdout))

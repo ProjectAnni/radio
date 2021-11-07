@@ -2,6 +2,12 @@
 
 `anni-radio` is an audio streaming client for Project Anni.
 
+## Installation
+
+```bash
+cargo install --git https://github.com/project-anni/radio
+```
+
 ## Dependency
 
 - `ffmpeg`: You need `ffmpeg` in your `PATH`.
