@@ -132,11 +132,13 @@ async fn main() -> anyhow::Result<()> {
             "-num_capture_buffers", "16",
         ]);
     } else {
-        args.append(&mut vec!["-c:v", "libx264"]);
+        args.append(&mut vec![
+            "-c:v", "libx264",
+            "-crf", "23",
+            "-preset", "ultrafast",
+        ]);
     };
     args.append(&mut vec![
-        "-crf", "23",
-        "-preset", "ultrafast",
         "-c:a", "aac",
         "-b:a", "320k",
         "-f", "mpegts",
