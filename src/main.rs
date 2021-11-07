@@ -3,13 +3,13 @@ mod utils;
 
 use std::collections::VecDeque;
 use std::env;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::io::Write;
 use tokio::process::{ChildStdout, Command};
 use anni_backend::{Backend, BackendReader, BackendReaderExt};
-use anni_backend::backends::FileBackend;
+use anni_backend::backends::ProxyBackend;
+use anni_backend::cache::{Cache, CachePool};
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
 use crate::repo::{RepoManager, TrackRef};
@@ -38,7 +38,7 @@ async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     Ok(stdout)
 }
 
-async fn generate_cover(backend: Arc<FileBackend>, TrackRef { catalog, track_id, album, track }: TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
+async fn generate_cover(backend: Arc<impl Backend>, TrackRef { catalog, track_id, album, track }: TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
     let audio = backend.get_audio(&catalog, track_id as u8).await?;
     let mut cover = backend.get_cover(&catalog).await?;
 
@@ -104,7 +104,8 @@ async fn save_cover(mut cover: ChildStdout) -> anyhow::Result<TempPath> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let manager = RepoManager::new(env::var("ANNI_REPO")?);
-    let mut backend = FileBackend::new(PathBuf::from(env::var("ANNI_RADIO_ROOT")?), false);
+    let backend = ProxyBackend::new(env::var("ANNIL_URL")?, env::var("ANNIL_AUTH")?);
+    let mut backend = Cache::new(Box::new(backend), Arc::new(CachePool::new("/tmp", 0)));
     let albums = backend.albums().await?;
 
     let mut process = Command::new("ffmpeg")
