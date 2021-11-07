@@ -110,29 +110,40 @@ async fn main() -> anyhow::Result<()> {
     let mut backend = Cache::new(Box::new(backend), pool);
     let albums = backend.albums().await?;
 
+    let output = env::args().nth(1).unwrap_or(String::from("-"));
+    let mut args = vec![
+        "-hide_banner",
+        "-re",
+        "-async", "1",
+        // "-thread_queue_size", "512",
+        "-f", "image2",
+        "-loop", "1",
+        "-framerate", "25",
+        "-i", "cover.png",
+        "-f", "s16le",
+        "-ac", "2",
+        "-ar", "44100",
+        "-i", "pipe:0",
+    ];
+    if env::var("USE_V4L2").is_ok() {
+        args.append(&mut vec![
+            "-c:v", "h264_v4l2m2m",
+            "-num_output_buffers", "32",
+            "-num_capture_buffers", "16",
+        ]);
+    } else {
+        args.append(&mut vec!["-c:v", "libx264"]);
+    };
+    args.append(&mut vec![
+        "-crf", "23",
+        "-preset", "ultrafast",
+        "-c:a", "aac",
+        "-b:a", "320k",
+        "-f", "mpegts",
+        &output,
+    ]);
     let mut process = Command::new("ffmpeg")
-        .args([
-            "-hide_banner",
-            "-re",
-            "-async", "1",
-            // "-thread_queue_size", "512",
-            "-f", "image2",
-            "-loop", "1",
-            "-framerate", "25",
-            "-i", "cover.png",
-            "-f", "s16le",
-            "-ac", "2",
-            "-ar", "44100",
-            "-i", "pipe:0",
-            "-c:v", "libx264",
-            // "-c:v", "h264_omx",
-            "-crf", "23",
-            "-preset", "ultrafast",
-            "-c:a", "aac",
-            "-b:a", "320k",
-            "-f", "mpegts",
-            &env::args().nth(1).unwrap_or(String::from("-")),
-        ])
+        .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         // .stderr(Stdio::null())
