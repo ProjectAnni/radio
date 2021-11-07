@@ -14,7 +14,7 @@ dependencies = [
 [[package]]
 name = "anni-backend"
 version = "0.1.1"
-source = "git+https://github.com/project-anni/anni#83a889e086972dafd924074022a7452f2299a386"
+source = "git+https://github.com/project-anni/anni#8735cdd466c48da5db5db18eb56817f05ca79a0e"
 dependencies = [
  "anni-repo",
  "async-trait",
@@ -36,7 +36,7 @@ dependencies = [
 [[package]]
 name = "anni-common"
 version = "0.1.1"
-source = "git+https://github.com/project-anni/anni#83a889e086972dafd924074022a7452f2299a386"
+source = "git+https://github.com/project-anni/anni#8735cdd466c48da5db5db18eb56817f05ca79a0e"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -52,7 +52,7 @@ dependencies = [
 [[package]]
 name = "anni-derive"
 version = "0.1.0"
-source = "git+https://github.com/project-anni/anni#83a889e086972dafd924074022a7452f2299a386"
+source = "git+https://github.com/project-anni/anni#8735cdd466c48da5db5db18eb56817f05ca79a0e"
 dependencies = [
  "quote",
  "syn",
@@ -61,7 +61,7 @@ dependencies = [
 [[package]]
 name = "anni-repo"
 version = "0.1.0"
-source = "git+https://github.com/project-anni/anni#83a889e086972dafd924074022a7452f2299a386"
+source = "git+https://github.com/project-anni/anni#8735cdd466c48da5db5db18eb56817f05ca79a0e"
 dependencies = [
  "anni-common",
  "anni-derive",

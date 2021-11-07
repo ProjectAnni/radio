@@ -38,8 +38,8 @@ async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     Ok(stdout)
 }
 
-async fn generate_cover(backend: Arc<impl Backend>, TrackRef { catalog, track_id, album, track }: TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
-    let audio = backend.get_audio(&catalog, track_id as u8).await?;
+async fn generate_cover(backend: Arc<impl Backend>, TrackRef { catalog, track_id, album, track }: &TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
+    let audio = backend.get_audio(&catalog, *track_id as u8).await?;
     let mut cover = backend.get_cover(&catalog).await?;
 
     // TODO: i18n support for text
@@ -105,7 +105,8 @@ async fn save_cover(mut cover: ChildStdout) -> anyhow::Result<TempPath> {
 async fn main() -> anyhow::Result<()> {
     let manager = RepoManager::new(env::var("ANNI_REPO")?);
     let backend = ProxyBackend::new(env::var("ANNIL_URL")?, env::var("ANNIL_AUTH")?);
-    let mut backend = Cache::new(Box::new(backend), Arc::new(CachePool::new("/tmp", 0)));
+    let pool = Arc::new(CachePool::new("/tmp", 0));
+    let mut backend = Cache::new(Box::new(backend), pool);
     let albums = backend.albums().await?;
 
     let mut process = Command::new("ffmpeg")
@@ -153,18 +154,20 @@ async fn main() -> anyhow::Result<()> {
             let track = manager.random_track(&albums);
             eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
 
-            if let Ok((audio, cover)) = generate_cover(backend.clone(), track).await {
+            if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
                 if let Ok(cover) = save_cover(cover).await {
-                    playlist.push_back((audio, cover));
+                    playlist.push_back((track, audio, cover));
                 }
             }
         } else {
             // play mode
-            let (audio, cover) = playlist.pop_front().unwrap();
+            let (track, audio, cover) = playlist.pop_front().unwrap();
             // TODO: do not ?
             tokio::fs::copy(cover, "cover.png").await?;
             let mut stdout = to_s16le(audio.reader).await?;
-            if let Err(_) = tokio::io::copy(&mut stdout, &mut stdin).await {
+            let copy = tokio::io::copy(&mut stdout, &mut stdin).await;
+            backend.invalidate(track.catalog, track.track_id as u8);
+            if matches!(copy, Err(_)) {
                 break;
             }
         }
