@@ -1,7 +1,7 @@
 mod repo;
 mod utils;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 use std::env;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -10,11 +10,9 @@ use std::io::Write;
 use tokio::process::{ChildStdout, Command};
 use anni_backend::{Backend, BackendReader, BackendReaderExt};
 use anni_backend::backends::FileBackend;
-use anni_repo::Album;
-use anni_repo::album::Track;
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
-use crate::repo::RepoManager;
+use crate::repo::{RepoManager, TrackRef};
 
 async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     let mut cmd = Command::new("ffmpeg")
@@ -40,7 +38,7 @@ async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     Ok(stdout)
 }
 
-async fn generate_cover<'repo>(backend: Arc<FileBackend>, (catalog, track_id, album, track): (String, usize, &'repo Album, &'repo Track)) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
+async fn generate_cover(backend: Arc<FileBackend>, TrackRef { catalog, track_id, album, track }: TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
     let audio = backend.get_audio(&catalog, track_id as u8).await?;
     let mut cover = backend.get_cover(&catalog).await?;
 
@@ -151,10 +149,10 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         if playlist.len() != PLAYLIST_SIZE {
-            let song = manager.rand_track(&albums);
-            eprintln!("catalog = {}, track = {}", song.0, song.1);
+            let track = manager.random_track(&albums);
+            eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
 
-            if let Ok((audio, cover)) = generate_cover(backend.clone(), song).await {
+            if let Ok((audio, cover)) = generate_cover(backend.clone(), track).await {
                 if let Ok(cover) = save_cover(cover).await {
                     playlist.push_back((audio, cover));
                 }

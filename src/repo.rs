@@ -43,7 +43,7 @@ impl RepoManager {
         self.discs.get(catalog).map(|a| Some(a)).unwrap_or(self.albums.get(catalog))
     }
 
-    pub fn rand_track(&self, albums: &HashSet<String>) -> (String, usize, &Album, &Track) {
+    pub fn random_track<'repo, 'catalog>(&'repo self, albums: &'catalog HashSet<String>) -> TrackRef<'repo, 'catalog> {
         loop {
             let mut rng = rand::thread_rng();
             let pos = rng.gen_range(0..albums.len());
@@ -56,7 +56,12 @@ impl RepoManager {
                     use anni_repo::album::TrackType;
                     match track.track_type() {
                         TrackType::Normal => {
-                            return (catalog.clone(), track_id, album, track);
+                            return TrackRef {
+                                catalog,
+                                track_id,
+                                album,
+                                track,
+                            };
                         }
                         _ => continue,
                     }
@@ -64,4 +69,11 @@ impl RepoManager {
             }
         }
     }
+}
+
+pub struct TrackRef<'repo, 'catalog> {
+    pub catalog: &'catalog str,
+    pub track_id: usize,
+    pub album: &'repo Album,
+    pub track: &'repo Track,
 }
