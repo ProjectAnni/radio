@@ -1,7 +1,7 @@
 mod repo;
 mod utils;
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::env;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -11,6 +11,8 @@ use tokio::process::{ChildStdout, Command};
 use anni_backend::{Backend, BackendReader, BackendReaderExt};
 use anni_backend::backends::FileBackend;
 use rand::Rng;
+use tempfile::{NamedTempFile, TempPath};
+use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use crate::repo::RepoManager;
 
@@ -39,6 +41,7 @@ fn random_song(albums: &HashSet<String>, repo: &RepoManager) -> (String, usize) 
 async fn to_wav(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     let mut cmd = Command::new("ffmpeg")
         .args([
+            // "-re",
             "-f", "flac",
             "-i", "pipe:0",
             "-f", "wav",
@@ -52,6 +55,7 @@ async fn to_wav(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     let mut stdin = cmd.stdin.take().expect("Failed to take stdin of ffmpeg(to_wav)");
     tokio::spawn(async move {
         let _ = tokio::io::copy(&mut reader, &mut stdin).await;
+        drop(stdin);
     });
     let mut stdout = cmd.stdout.take().expect("Failed to take stdout of ffmpeg(to_wav)");
     // TODO: calculate wav header size instead of fixed 196 offset
@@ -59,9 +63,7 @@ async fn to_wav(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     Ok(stdout)
 }
 
-async fn generate_cover(albums: Arc<HashSet<String>>, manager: Arc<RepoManager>, backend: Arc<FileBackend>) -> anyhow::Result<BackendReaderExt> {
-    let (catalog, track_id) = random_song(&albums, &manager);
-    eprintln!("catalog = {}, track = {}", catalog, track_id);
+async fn generate_cover(catalog: String, track_id: usize, manager: Arc<RepoManager>, backend: Arc<FileBackend>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
     let audio = backend.get_audio(&catalog, track_id as u8).await?;
     let mut cover = backend.get_cover(&catalog).await?;
 
@@ -78,14 +80,14 @@ async fn generate_cover(albums: Arc<HashSet<String>>, manager: Arc<RepoManager>,
 "#, catalog, track_id, track.title(), track.artist(), album.title())?;
     let text_path = text_temp_file.path();
     let text_path = text_path.to_string_lossy();
-    eprintln!("path = {}", text_path);
 
     let mut child = Command::new("ffmpeg")
         .args([
             "-y",
-            // TODO: use relative path
-            "-i", "/tmp/test/black.png",
+            "-f", "lavfi",
+            "-i", "color=c=black:s=1920x1080",
             "-i", "pipe:0",
+            "-frames:v", "1",
             "-filter_complex", &format!("[1:v]scale=-1:'min(1000,ih)'[ovrl],
     [0:v][ovrl]overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2,
     drawtext=
@@ -95,18 +97,35 @@ async fn generate_cover(albums: Arc<HashSet<String>>, manager: Arc<RepoManager>,
       fontcolor=white:
       borderw=2:
       fontsize=24", text_path),
-            "-frames:v", "1",
-            // "-f", "png_pipe", "-",
-            "cover.png",
+            "-f", "image2pipe",
+            "-c:v", "png",
+            "pipe:1",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .spawn().expect("Failed to generate image");
-    let mut stdin = child.stdin.as_mut().expect("Failed to take stdin of ffmpeg(cover)");
+        .spawn()
+        .expect("Failed to generate image");
+
+    let mut stdin = child.stdin.take().expect("Failed to take stdin of ffmpeg(cover)");
+    let stdout = child.stdout.take().unwrap();
     tokio::io::copy(&mut cover, &mut stdin).await.expect("Failed to copy cover from reader");
-    child.wait().await?;
-    Ok(audio)
+
+    tokio::spawn(async move {
+        // drop text file after child
+        let _ = text_temp_file;
+        let _ = child.wait().await;
+    });
+
+    Ok((audio, stdout))
+}
+
+async fn save_cover(mut cover: ChildStdout) -> anyhow::Result<TempPath> {
+    let file = NamedTempFile::new()?;
+    let (file, path) = file.into_parts();
+    let mut file = File::from_std(file);
+    tokio::io::copy(&mut cover, &mut file).await?;
+    Ok(path)
 }
 
 #[tokio::main]
@@ -138,7 +157,7 @@ async fn main() -> anyhow::Result<()> {
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        // .stderr(Stdio::null())
         .spawn()
         .expect("Failed to execute main ffmpeg.");
     let mut process_stdout = process.stdout.take().expect("Failed to take stdout of ffmpeg(main)");
@@ -158,8 +177,25 @@ async fn main() -> anyhow::Result<()> {
     ];
     stdin.write_all(&wave_header).await.expect("Failed to write WAVE header");
 
+    const PLAYLIST_SIZE: usize = 2;
+    let mut playlist = VecDeque::with_capacity(PLAYLIST_SIZE);
+
     loop {
-        if let Ok(audio) = generate_cover(albums.clone(), manager.clone(), backend.clone()).await {
+        if playlist.len() != PLAYLIST_SIZE {
+            let (catalog, track_id) = random_song(&albums.clone(), &manager.clone());
+            eprintln!("catalog = {}, track = {}", catalog, track_id);
+            if let Ok((audio, cover)) = generate_cover(catalog, track_id, manager.clone(), backend.clone()).await {
+                if let Ok(cover) = save_cover(cover).await {
+                    playlist.push_back((audio, cover));
+                }
+            }
+            // there must be some error here, but still continue
+            continue;
+        } else {
+            // play mode
+            let (audio, cover) = playlist.pop_front().unwrap();
+            // TODO: do not ?
+            tokio::fs::copy(cover, "cover.png").await?;
             let mut stdout = to_wav(audio.reader).await?;
             tokio::io::copy(&mut stdout, &mut stdin).await?;
         }
