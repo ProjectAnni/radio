@@ -1,8 +1,10 @@
+use std::cell::RefCell;
 use anni_repo::{Album, RepositoryManager};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use anni_repo::album::Track;
+use anni_repo::album::{Track, TrackType};
 use rand::Rng;
+use rand::rngs::ThreadRng;
 
 pub struct RepoManager {
     albums: HashMap<String, Album>,
@@ -43,31 +45,24 @@ impl RepoManager {
         self.discs.get(catalog).map(|a| Some(a)).unwrap_or(self.albums.get(catalog))
     }
 
-    pub fn random_track<'repo, 'catalog>(&'repo self, albums: &'catalog HashSet<String>) -> TrackRef<'repo, 'catalog> {
-        loop {
-            let mut rng = rand::thread_rng();
-            let pos = rng.gen_range(0..albums.len());
-            if let Some(catalog) = albums.iter().nth(pos) {
-                if let Some(album) = self.load_album(catalog) {
-                    let tracks = album.discs()[0].tracks();
-                    let track_id = rng.gen_range(0..tracks.len());
-                    let ref track = tracks[track_id];
-                    let track_id = track_id + 1;
-                    use anni_repo::album::TrackType;
-                    match track.track_type() {
-                        TrackType::Normal => {
-                            return TrackRef {
-                                catalog,
-                                track_id,
-                                album,
-                                track,
-                            };
-                        }
-                        _ => continue,
+    pub fn filter_tracks<'repo, 'catalog>(&'repo self, albums: &'catalog HashSet<String>) -> TrackList<'repo, 'catalog> {
+        let mut result = Vec::new();
+        for catalog in albums.iter() {
+            if let Some(album) = self.load_album(catalog) {
+                for (id, track) in album.discs()[0].tracks().iter().enumerate() {
+                    if let TrackType::Normal = track.track_type() {
+                        result.push(TrackRef {
+                            catalog,
+                            track_id: id + 1,
+                            album,
+                            track,
+                        });
                     }
                 }
             }
         }
+
+        TrackList::new(result)
     }
 }
 
@@ -76,4 +71,24 @@ pub struct TrackRef<'repo, 'catalog> {
     pub track_id: usize,
     pub album: &'repo Album,
     pub track: &'repo Track,
+}
+
+pub struct TrackList<'r, 'c> {
+    rng: RefCell<ThreadRng>,
+    inner: Vec<TrackRef<'r, 'c>>,
+}
+
+impl<'r, 'c> TrackList<'r, 'c> {
+    fn new(tracks: Vec<TrackRef<'r, 'c>>) -> Self {
+        Self {
+            rng: RefCell::new(Default::default()),
+            inner: tracks,
+        }
+    }
+
+    pub fn random(&self) -> &TrackRef<'r, 'c> {
+        let mut rng = self.rng.borrow_mut();
+        let n = rng.gen_range(0..self.inner.len());
+        self.inner.get(n).unwrap()
+    }
 }

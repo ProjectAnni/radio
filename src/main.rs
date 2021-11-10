@@ -162,10 +162,11 @@ async fn main() -> anyhow::Result<()> {
 
     const PLAYLIST_SIZE: usize = 2;
     let mut playlist = VecDeque::with_capacity(PLAYLIST_SIZE);
+    let tracks = manager.filter_tracks(&albums);
 
     // prefill playlist
     while playlist.len() != PLAYLIST_SIZE {
-        let track = manager.random_track(&albums);
+        let track = tracks.random();
         eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
 
         if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
@@ -185,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
         let (copy, release_playlist) = tokio::join!(
             tokio::io::copy(&mut stdout, &mut stdin),
             (|| async {
-                let track = manager.random_track(&albums);
+                let track = tracks.random();
                 eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
                 if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
                     if let Ok(cover) = save_cover(cover).await {
