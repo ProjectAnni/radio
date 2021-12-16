@@ -1,14 +1,13 @@
 use std::cell::RefCell;
-use anni_repo::{Album, RepositoryManager};
+use anni_repo::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use anni_repo::album::{Track, TrackType};
+use anni_repo::RepositoryManager;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 
 pub struct RepoManager {
     albums: HashMap<String, Album>,
-    discs: HashMap<String, Album>,
 }
 
 impl RepoManager {
@@ -16,47 +15,34 @@ impl RepoManager {
         let manager = RepositoryManager::new(root).expect("Invalid Anni Metadata Repository");
 
         let mut albums = HashMap::new();
-        let mut discs = HashMap::new();
         for catalog in manager.catalogs().unwrap() {
             let album = manager.load_album(&catalog).unwrap();
-            if album.discs().len() == 1 {
-                albums.insert(album.catalog().to_string(), album);
-            } else {
-                let release_date = album.release_date().clone();
-                let mut disc_catalogs = Vec::new();
-                for (i, disc) in album.into_discs().into_iter().enumerate() {
-                    let title = disc.title().to_string();
-                    disc_catalogs.push(disc.catalog().to_string());
-                    discs.insert(
-                        disc.catalog().to_string(),
-                        disc.into_album(
-                            format!("{} [Disc {}]", title, i + 1),
-                            release_date.clone(),
-                        ),
-                    );
-                }
-            }
+            albums.insert(album.album_id().to_string(), album);
         }
 
-        Self { albums, discs }
+        Self { albums }
     }
 
-    pub fn load_album(&self, catalog: &str) -> Option<&Album> {
-        self.discs.get(catalog).map(|a| Some(a)).unwrap_or(self.albums.get(catalog))
+    pub fn load_album(&self, album_id: &str) -> Option<&Album> {
+        self.albums.get(album_id)
     }
 
-    pub fn filter_tracks<'repo, 'catalog>(&'repo self, albums: &'catalog HashSet<String>) -> TrackList<'repo, 'catalog> {
+    pub fn filter_tracks<'repo, 'album>(&'repo self, albums: &'album HashSet<String>) -> TrackList<'repo, 'album> {
         let mut result = Vec::new();
-        for catalog in albums.iter() {
-            if let Some(album) = self.load_album(catalog) {
-                for (id, track) in album.discs()[0].tracks().iter().enumerate() {
-                    if let TrackType::Normal = track.track_type() {
-                        result.push(TrackRef {
-                            catalog,
-                            track_id: id + 1,
-                            album,
-                            track,
-                        });
+        for album_id in albums.iter() {
+            if let Some(album) = self.load_album(album_id) {
+                for (disc_id, disc) in album.discs().iter().enumerate() {
+                    let disc_id = disc_id + 1;
+                    for (track_id, track) in disc.tracks().iter().enumerate() {
+                        if let TrackType::Normal = track.track_type() {
+                            result.push(TrackRef {
+                                album_id,
+                                disc_id,
+                                track_id: track_id + 1,
+                                album,
+                                track,
+                            });
+                        }
                     }
                 }
             }
@@ -66,27 +52,28 @@ impl RepoManager {
     }
 }
 
-pub struct TrackRef<'repo, 'catalog> {
-    pub catalog: &'catalog str,
+pub struct TrackRef<'repo, 'album> {
+    pub album_id: &'album str,
+    pub disc_id: usize,
     pub track_id: usize,
     pub album: &'repo Album,
     pub track: &'repo Track,
 }
 
-pub struct TrackList<'r, 'c> {
+pub struct TrackList<'r, 'a> {
     rng: RefCell<ThreadRng>,
-    inner: Vec<TrackRef<'r, 'c>>,
+    inner: Vec<TrackRef<'r, 'a>>,
 }
 
-impl<'r, 'c> TrackList<'r, 'c> {
-    fn new(tracks: Vec<TrackRef<'r, 'c>>) -> Self {
+impl<'r, 'a> TrackList<'r, 'a> {
+    fn new(tracks: Vec<TrackRef<'r, 'a>>) -> Self {
         Self {
             rng: RefCell::new(Default::default()),
             inner: tracks,
         }
     }
 
-    pub fn random(&self) -> &TrackRef<'r, 'c> {
+    pub fn random(&self) -> &TrackRef<'r, 'a> {
         let mut rng = self.rng.borrow_mut();
         let n = rng.gen_range(0..self.inner.len());
         self.inner.get(n).unwrap()

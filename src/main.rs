@@ -1,5 +1,4 @@
 mod repo;
-mod utils;
 
 use std::collections::VecDeque;
 use std::env;
@@ -38,19 +37,20 @@ async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     Ok(stdout)
 }
 
-async fn generate_cover(backend: Arc<impl Backend>, TrackRef { catalog, track_id, album, track }: &TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
-    let audio = backend.get_audio(&catalog, *track_id as u8).await?;
-    let mut cover = backend.get_cover(&catalog).await?;
+async fn generate_cover(backend: Arc<impl Backend>, TrackRef { album_id, disc_id, track_id, album, track }: &TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
+    let audio = backend.get_audio(&album_id, *disc_id as u8, *track_id as u8).await?;
+    let mut cover = backend.get_cover(&album_id, None).await?;
 
     // TODO: i18n support for text
     let text_temp_file = tempfile::NamedTempFile::new()?;
     let mut text_file = text_temp_file.as_file();
     write!(text_file, r#"
+专辑 ID：{}
 序号：{}/{}
 标题：{}
 艺术家：{}
 专辑：{}
-"#, catalog, track_id, track.title(), track.artist(), album.title())?;
+"#, album_id, album.catalog(), track_id, track.title(), track.artist(), album.title())?;
     let text_path = text_temp_file.path();
     let text_path = text_path.to_string_lossy();
 
@@ -167,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
     // prefill playlist
     while playlist.len() != PLAYLIST_SIZE {
         let track = tracks.random();
-        eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
+        eprintln!("album_id = {}, disc_id = {}, track = {}", track.album_id, track.disc_id, track.track_id);
 
         if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
             if let Ok(cover) = save_cover(cover).await {
@@ -187,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
             tokio::io::copy(&mut stdout, &mut stdin),
             (|| async {
                 let track = tracks.random();
-                eprintln!("catalog = {}, track = {}", track.catalog, track.track_id);
+                eprintln!("album_id = {}, disc_id = {}, track = {}", track.album_id, track.disc_id, track.track_id);
                 if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
                     if let Ok(cover) = save_cover(cover).await {
                         playlist.push_back((track, audio, cover));
@@ -198,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
         );
         playlist = release_playlist;
 
-        backend.invalidate(track.catalog, track.track_id as u8);
+        backend.invalidate(track.album_id, track.disc_id as u8, track.track_id as u8);
         if matches!(copy, Err(_)) {
             break;
         }
