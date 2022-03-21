@@ -5,7 +5,7 @@
 ## Installation
 
 ```bash
-cargo install --git https://github.com/project-anni/radio
+cargo install --git https://github.com/ProjectAnni/radio
 ```
 
 ## Dependency
@@ -17,7 +17,8 @@ cargo install --git https://github.com/project-anni/radio
 ```bash
 # environmental variables required
 ANNI_REPO=/path/to/repo
-ANNI_RADIO_ROOT=/path/to/local/music/provider
+ANNIL_URL=https://annil-url/path
+ANNIL_AUTH=eyxxxxxxx.yyyyyyy.zzzzzz
 
 # Use case 1:
 # Stream to stdout and play with mpv
