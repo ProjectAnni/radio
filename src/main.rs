@@ -6,14 +6,14 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::io::Write;
 use tokio::process::{ChildStdout, Command};
-use anni_backend::{Backend, BackendReader, BackendReaderExt};
-use anni_backend::backends::ProxyBackend;
-use anni_backend::cache::{Cache, CachePool};
+use anni_provider::{AnniProvider, ResourceReader, AudioResourceReader, Range};
+use anni_provider::providers::ProxyBackend;
+use anni_provider::cache::{Cache, CachePool};
 use tempfile::{NamedTempFile, TempPath};
 use tokio::fs::File;
 use crate::repo::{RepoManager, TrackRef};
 
-async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
+async fn to_s16le(mut reader: ResourceReader) -> anyhow::Result<ChildStdout> {
     let mut cmd = Command::new("ffmpeg")
         .args([
             // "-re",
@@ -37,9 +37,9 @@ async fn to_s16le(mut reader: BackendReader) -> anyhow::Result<ChildStdout> {
     Ok(stdout)
 }
 
-async fn generate_cover(backend: Arc<impl Backend>, TrackRef { album_id, disc_id, track_id, album, track }: &TrackRef<'_, '_>) -> anyhow::Result<(BackendReaderExt, ChildStdout)> {
-    let audio = backend.get_audio(&album_id, *disc_id as u8, *track_id as u8).await?;
-    let mut cover = backend.get_cover(&album_id, None).await?;
+async fn generate_cover(provider: Arc<impl AnniProvider>, TrackRef { album_id, disc_id, track_id, album, track }: &TrackRef<'_, '_>) -> anyhow::Result<(AudioResourceReader, ChildStdout)> {
+    let audio = provider.get_audio(&album_id, *disc_id as u8, *track_id as u8, Range::FULL).await?;
+    let mut cover = provider.get_cover(&album_id, None).await?;
 
     // TODO: i18n support for text
     let text_temp_file = tempfile::NamedTempFile::new()?;
@@ -105,10 +105,11 @@ async fn save_cover(mut cover: ChildStdout) -> anyhow::Result<TempPath> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let manager = RepoManager::new(env::var("ANNI_REPO")?);
-    let backend = ProxyBackend::new(env::var("ANNIL_URL")?, env::var("ANNIL_AUTH")?);
+    let provider = ProxyBackend::new(env::var("ANNIL_URL")?, env::var("ANNIL_AUTH")?);
     let pool = Arc::new(CachePool::new("/tmp", 0));
-    let mut backend = Cache::new(Box::new(backend), pool);
-    let albums = backend.albums().await?;
+    let provider = Cache::new(Box::new(provider), pool);
+    let provider = Arc::new(provider);
+    let albums = provider.albums().await?;
 
     let output = env::args().nth(1).unwrap_or(String::from("-"));
     let mut args = vec![
@@ -158,7 +159,6 @@ async fn main() -> anyhow::Result<()> {
     });
 
     let mut stdin = process.stdin.take().expect("Failed to take stdin of ffmpeg(main)");
-    let backend = Arc::new(backend);
 
     const PLAYLIST_SIZE: usize = 2;
     let mut playlist = VecDeque::with_capacity(PLAYLIST_SIZE);
@@ -169,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
         let track = tracks.random();
         eprintln!("album_id = {}, disc_id = {}, track = {}", track.album_id, track.disc_id, track.track_id);
 
-        if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
+        if let Ok((audio, cover)) = generate_cover(provider.clone(), &track).await {
             if let Ok(cover) = save_cover(cover).await {
                 playlist.push_back((track, audio, cover));
             }
@@ -188,7 +188,7 @@ async fn main() -> anyhow::Result<()> {
             (|| async {
                 let track = tracks.random();
                 eprintln!("album_id = {}, disc_id = {}, track = {}", track.album_id, track.disc_id, track.track_id);
-                if let Ok((audio, cover)) = generate_cover(backend.clone(), &track).await {
+                if let Ok((audio, cover)) = generate_cover(provider.clone(), &track).await {
                     if let Ok(cover) = save_cover(cover).await {
                         playlist.push_back((track, audio, cover));
                     }
@@ -198,7 +198,7 @@ async fn main() -> anyhow::Result<()> {
         );
         playlist = release_playlist;
 
-        backend.invalidate(track.album_id, track.disc_id as u8, track.track_id as u8);
+        provider.invalidate(track.album_id, track.disc_id as u8, track.track_id as u8);
         if matches!(copy, Err(_)) {
             break;
         }

@@ -5,8 +5,8 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
-tokio = { version = "1.5.0", features = ["full"] }
-anni-backend = { git = "https://github.com/project-anni/anni" }
-anni-repo = { git = "https://github.com/project-anni/anni", features = ["arc"] }
+tokio = { version = "1.17.0", features = ["full"] }
+anni-provider = { git = "https://github.com/ProjectAnni/anni" }
+anni-repo = { git = "https://github.com/ProjectAnni/anni", features = ["arc"] }
 tempfile = "3"
 rand = "0.8.3"

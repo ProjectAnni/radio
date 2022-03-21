@@ -17,7 +17,7 @@ cargo install --git https://github.com/project-anni/radio
 ```bash
 # environmental variables required
 ANNI_REPO=/path/to/repo
-ANNI_RADIO_ROOT=/path/to/local/music/backend
+ANNI_RADIO_ROOT=/path/to/local/music/provider
 
 # Use case 1:
 # Stream to stdout and play with mpv

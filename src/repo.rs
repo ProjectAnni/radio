@@ -1,33 +1,29 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use anni_repo::prelude::*;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
-use anni_repo::RepositoryManager;
+use anni_repo::{OwnedRepositoryManager, RepositoryManager};
 use rand::Rng;
 use rand::rngs::ThreadRng;
 
 pub struct RepoManager {
-    albums: HashMap<String, Album>,
+    manager: OwnedRepositoryManager,
 }
 
 impl RepoManager {
     pub fn new<P: AsRef<Path>>(root: P) -> Self {
         let manager = RepositoryManager::new(root).expect("Invalid Anni Metadata Repository");
+        let manager = manager.into_owned_manager().unwrap();
 
-        let mut albums = HashMap::new();
-        for catalog in manager.catalogs().unwrap() {
-            let album = manager.load_album(&catalog).unwrap();
-            albums.insert(album.album_id().to_string(), album);
-        }
-
-        Self { albums }
+        Self { manager }
     }
 
     pub fn load_album(&self, album_id: &str) -> Option<&Album> {
-        self.albums.get(album_id)
+        self.manager.albums().get(album_id)
     }
 
-    pub fn filter_tracks<'repo, 'album>(&'repo self, albums: &'album HashSet<String>) -> TrackList<'repo, 'album> {
+    pub fn filter_tracks<'repo, 'album>(&'repo self, albums: &'album HashSet<Cow<str>>) -> TrackList<'repo, 'album> {
         let mut result = Vec::new();
         for album_id in albums.iter() {
             if let Some(album) = self.load_album(album_id) {
